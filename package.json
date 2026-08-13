@@ -1,0 +1,19 @@
+{
+  "name": "boltzlabs",
+  "version": "0.1.0",
+  "description": "Sandboxes and RL environments, from JavaScript.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./env": "./src/env.js"
+  },
+  "files": ["src", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": ["sandbox", "rl", "reinforcement-learning", "boltzlabs"],
+  "homepage": "https://boltzlabs.cloud",
+  "license": "MIT"
+}

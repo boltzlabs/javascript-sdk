@@ -1,0 +1,11 @@
+node_modules/
+
+# `npm pack` output. The tarball is a build artifact of a specific version —
+# publish it, do not commit it.
+*.tgz
+
+# Credentials. BOLTZLABS_API_KEY is a bearer token for the account.
+.env
+
+coverage/
+.DS_Store
