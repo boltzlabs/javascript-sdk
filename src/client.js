@@ -19,7 +19,6 @@ const DEFAULT_ENVIRONMENT = 'base';
 // image, and the image implies the interpreter that is on it.
 const LANGUAGE_FOR = {
 	python: 'python',
-	pytorch: 'python',
 	node: 'node',
 	base: 'bash'
 };
@@ -103,7 +102,7 @@ export class Environment {
 	}
 }
 
-/** A machine: nano, small, medium, large — and what it costs. */
+/** A machine: small, medium, or large — and what it costs. */
 export class Machine {
 	constructor({ name = '', vcpus = 0, memoryMb = 0, diskGb = 0, rateUsdPerHour = 0 } = {}) {
 		Object.assign(this, { name, vcpus, memoryMb, diskGb, rateUsdPerHour });
@@ -121,11 +120,67 @@ export class Machine {
  * compile comes back with the compiler's message rather than a traceback.
  */
 export class Language {
-	constructor({ code = '', label = '', extension = '', compiled = false } = {}) {
-		Object.assign(this, { code, label, extension, compiled });
+	constructor({ id = 0, name = '', code = '', extension = '', compiled = false } = {}) {
+		Object.assign(this, { id, name, code, extension, compiled });
+	}
+	/** The display name; `name` under its older spelling. */
+	get label() {
+		return this.name;
 	}
 	toString() {
 		return this.code;
+	}
+}
+
+/**
+ * One run on the exec plane, in the standard submission format. `json` is the
+ * response exactly as it came back; its fields are properties too — stdout,
+ * stderr, compile_output, message, status ({id, description}), time and
+ * wall_time (seconds, as strings), memory (KB), exit_code, token.
+ */
+export class Submission {
+	static FIELDS = [
+		'token',
+		'stdout',
+		'stderr',
+		'compile_output',
+		'message',
+		'status',
+		'time',
+		'wall_time',
+		'memory',
+		'exit_code',
+		'exit_signal',
+		'language_id'
+	];
+
+	constructor(json = {}) {
+		this.json = json ?? {};
+		for (const f of Submission.FIELDS) this[f] = this.json[f] ?? null;
+	}
+	get statusId() {
+		return this.status?.id ?? null;
+	}
+	/** False while it is still In Queue or Processing. */
+	get finished() {
+		return this.statusId !== 1 && this.statusId !== 2;
+	}
+	get ok() {
+		return this.statusId === 3;
+	}
+	toString() {
+		let out = this.stdout ?? '';
+		if (!this.ok) out += (this.statusId === 6 ? this.compile_output : this.stderr) ?? '';
+		return out;
+	}
+	/** Throw unless it was Accepted. For a script that should stop here. */
+	check() {
+		if (!this.ok) {
+			const detail = (this.compile_output || this.stderr || this.message || '').trim().slice(0, 500);
+			const desc = this.status?.description ?? 'not finished';
+			throw new BoltzLabsError(`run ended ${desc}${detail ? `: ${detail}` : ''}`);
+		}
+		return this;
 	}
 }
 
@@ -214,6 +269,67 @@ export class Sandbox {
 	}
 
 	/** Destroy it. This is what stops the meter. */
+	/**
+	 * Copy a local file or directory into the sandbox. `boltz cp <src> <id>:<dst>`.
+	 *
+	 * Uploading `./src` lands it as `<remote>/src`, the way scp does.
+	 *
+	 * @param {string} local
+	 * @param {string} [remote]
+	 * @param {{timeout?: number}} [opts]
+	 */
+	async push(local, remote = '/workspace', { timeout = 300 } = {}) {
+		const { packPath } = await import('./files.js');
+		const tar = await packPath(local);
+		await this._client._session.raw(
+			'POST',
+			`/api/sandboxes/${this.id}/fs?path=${encodeURIComponent(remote)}`,
+			tar,
+			{ timeout, contentType: 'application/x-tar' }
+		);
+		return remote;
+	}
+
+	/**
+	 * Copy a path out of the sandbox. `boltz cp <id>:<src> <dst>`.
+	 *
+	 * @param {string} remote
+	 * @param {string} [local]
+	 * @param {{timeout?: number}} [opts]
+	 */
+	async pull(remote, local = '.', { timeout = 300 } = {}) {
+		const { unpackTo } = await import('./files.js');
+		const buf = await this._client._session.raw(
+			'GET',
+			`/api/sandboxes/${this.id}/fs?path=${encodeURIComponent(remote)}`,
+			undefined,
+			{ timeout }
+		);
+		await unpackTo(Buffer.from(buf), local);
+		return local;
+	}
+
+	/**
+	 * Stop compute while retaining files. Storage is free for 3 days per pause.
+	 *
+	 * Files under /workspace are archived to object storage shortly after, which
+	 * is what lets a paused sandbox cost nothing and come back on a different
+	 * machine. Packages installed outside /workspace do not survive that.
+	 */
+	async pause() {
+		return this._fill(await this._client._post(`/api/sandboxes/${this.id}/pause`));
+	}
+
+	/**
+	 * Restart a paused sandbox after capacity and credit checks.
+	 *
+	 * Seconds if the sandbox is still on its machine, longer if it has to be
+	 * rebuilt from its archived workspace — hence its own deadline.
+	 */
+	async resume({ timeout = 300 } = {}) {
+		return this._fill(await this._client._post(`/api/sandboxes/${this.id}/resume`, null, { timeout }));
+	}
+
 	async delete() {
 		await this._client._delete(`/api/sandboxes/${this.id}`);
 		this.status = 'deleted';
@@ -312,44 +428,99 @@ export class Client {
 	 * does not compile comes back as a result, not an exception, with
 	 * `compileFailed` set and the compiler's output in `stderr`.
 	 */
-	async execute(code = null, { language = null, file = null, timeout = null, filename = null } = {}) {
+	/**
+	 * Run one piece of code on the exec plane. `language` is an id (113) or a
+	 * code ('python'). Judging a solution: `stdin`, `expected_output`, and the
+	 * problem's limits `cpu_time_limit` / `wall_time_limit` (seconds) and
+	 * `memory_limit` (KB) — they only ever lower the platform's own. Resolves
+	 * to a Submission; `wait: false` resolves at once with its token.
+	 * `supersede_key`: a newer run with the same key replaces this one.
+	 */
+	async execute(code = null, opts = {}) {
 		// `execute({file, language})` — everything in one object — is the shape
 		// people reach for when there is no inline code to pass positionally.
 		if (code !== null && typeof code === 'object') {
-			({ language = null, file = null, timeout = null, filename = null } = code);
+			opts = code;
 			code = code.code ?? null;
 		}
+		const { language = null, file = null, wait = true } = opts;
 		if ((code === null) === (file === null)) {
 			throw new TypeError('pass either code or file, not both and not neither');
 		}
-		if (!language) {
+		if (language === null || language === '') {
 			throw new TypeError(
-				'language is required — it is never inferred. See boltzlabs.languages() for the codes.'
+				'language is required — it is never inferred. See boltzlabs.languages() for the ids and codes.'
 			);
 		}
+		// The path is resolved here, on the caller's machine: the platform
+		// never sees a path it would have to trust or resolve.
+		const source = file !== null ? await fs.readFile(file, 'utf8') : code;
+		const body = await this._submission(source, language, opts);
+		const route = wait ? '/api/execute?wait=true&fields=*' : '/api/execute';
+		return new Submission(await this._post(route, body, { timeout: 180 }));
+	}
 
-		let source = code;
-		let sentName = filename;
-		if (file !== null) {
-			// The path is resolved here, on the caller's machine: the platform
-			// never sees a path it would have to trust or resolve.
-			source = await fs.readFile(file, 'utf8');
-			sentName = sentName ?? path.basename(file);
+	/**
+	 * Run up to 20 submissions at once — a problem's test cases, say. Each is
+	 * an object of execute()'s options (`code` or `source_code`, `language`,
+	 * `stdin`, `expected_output`, limits). Resolves to their Submissions, in
+	 * order, once all finish.
+	 */
+	async executeBatch(submissions, { wait = true, pollMs = 250, timeoutMs = 300000 } = {}) {
+		const items = [];
+		for (const item of submissions) {
+			const { code, source_code, language, language_id, ...rest } = item;
+			items.push(await this._submission(code ?? source_code, language ?? language_id, rest));
 		}
+		const answer = await this._post('/api/execute/batch', { submissions: items });
+		const bad = answer.filter((a) => !a.token);
+		if (bad.length) throw new BoltzLabsError(`invalid submissions in batch: ${JSON.stringify(bad)}`);
+		const tokens = answer.map((a) => a.token);
+		if (!wait) return tokens.map((token) => new Submission({ token, status: { id: 1, description: 'In Queue' } }));
+		const deadline = Date.now() + timeoutMs;
+		for (;;) {
+			const got = await this._get(`/api/execute/batch?fields=*&tokens=${tokens.join(',')}`);
+			const results = got.submissions.map((j) => new Submission(j));
+			if (results.every((r) => r.finished)) return results;
+			if (Date.now() > deadline) throw new BoltzLabsError('batch still unfinished');
+			await new Promise((r) => setTimeout(r, pollMs));
+		}
+	}
 
-		const body = { code: source, language };
-		if (sentName) body.filename = sentName;
-		if (timeout) body.timeoutS = Math.trunc(timeout);
-		return ExecResult._fromWire(
-			await this._post('/api/execute', body, { timeout: waitFor(timeout ?? 30) })
-		);
+	/** A submission by token, as it is now. */
+	async submission(token) {
+		return new Submission(await this._get(`/api/execute/${encodeURIComponent(token)}?fields=*`));
+	}
+
+	async _submission(source, language, opts) {
+		const body = { source_code: source, language_id: await this._languageId(language) };
+		for (const key of [
+			'stdin',
+			'expected_output',
+			'cpu_time_limit',
+			'wall_time_limit',
+			'memory_limit',
+			'supersede_key'
+		]) {
+			if (opts[key] !== undefined && opts[key] !== null) body[key] = opts[key];
+		}
+		return body;
+	}
+
+	async _languageId(language) {
+		if (typeof language === 'number' || /^\d+$/.test(String(language))) return Number(language);
+		if (!this._languageIds) {
+			this._languageIds = new Map((await this.languages()).map((l) => [l.code, l.id]));
+		}
+		const id = this._languageIds.get(language);
+		if (id === undefined) throw new TypeError(`unknown language ${JSON.stringify(language)}`);
+		return id;
 	}
 
 	// -- listings ------------------------------------------------------------
 
 	async languages() {
-		const body = await this._get('/api/languages');
-		return (body?.languages ?? []).map((l) => new Language(l));
+		return ((await this._get('/api/languages')) ?? []).map((l) => new Language(l));
 	}
 
 	async createSandbox(opts = {}) {

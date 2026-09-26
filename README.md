@@ -40,8 +40,8 @@ platform has assigned it an id, and a constructor cannot await that.
 
 ```js
 const sb = await Sandbox.create({
-  machine: 'medium',          // nano | small | medium | large
-  environment: 'pytorch',     // base | python | node | pytorch | …
+  machine: 'medium',          // small | medium | large
+  environment: 'python',      // base | python | node | …
   name: 'trainer',
   internet: true
 });
@@ -49,7 +49,7 @@ const sb = await Sandbox.create({
 await sb.waitUntilRunning();  // creation returns before boot does
 
 await sb.exec('nvidia-smi');
-await sb.run('import torch; print(torch.cuda.is_available())');
+await sb.run('import numpy; print(numpy.arange(4).sum())');
 
 sb.url(8080);                 // reach a port from outside
 await sb.metrics();
@@ -73,7 +73,7 @@ to destroy after. Use a sandbox instead when you want state to survive between
 commands.
 
 ```js
-import { execute, languages } from 'boltzlabs';
+import { execute, executeBatch, languages } from 'boltzlabs';
 
 await execute('print(sum(range(101)))', { language: 'python' });   // 5050
 await execute({ file: 'train.py', language: 'python' });
@@ -86,20 +86,34 @@ await languages();   // python, node, go, c, cpp — from the platform
 The language is never guessed, from an extension or otherwise: a `.py` file is
 as likely to be torch as plain python, and inline code has no extension at all.
 
-A compiled language builds first. Code that does not compile comes back as a
-result, not an exception, with `compileFailed` set and the compiler's output in
-`stderr`.
+The result is the standard submission format: `String(res)` is what it
+printed, `res.ok` is whether it was Accepted, and `res.status`, `res.time` (CPU
+seconds), `res.wall_time`, `res.memory` (KB), `res.compile_output` and `res.json`
+(the whole response) are there when you want them. A compiled language builds
+first; code that does not compile comes back as a result, not an exception, with
+status Compilation Error and the compiler's message in `compile_output`.
+
+Judging a solution, and a problem's test cases together:
+
+```js
+const res = await execute({ file: 'sol.py', language: 'python', stdin: '1 2\n',
+  expected_output: '3', cpu_time_limit: 1, memory_limit: 65536 });
+res.status.description;   // Accepted, Wrong Answer, Time Limit Exceeded, ...
+
+const results = await executeBatch(tests.map(([i, o]) =>
+  ({ code: src, language: 113, stdin: i, expected_output: o })));   // up to 20
+```
 
 ## Everything else
 
 ```js
 import { me, sandboxes, sandbox, environments, machines, Client, use } from 'boltzlabs';
 
-await me();             // who your key belongs to      (bzlabs auth status)
-await sandboxes();      // everything you have running  (bzlabs ls)
-await sandbox(id);      // one of them, by id           (bzlabs status <id>)
-await environments();   // runtime and coding-agent images (bzlabs environments)
-await machines();       // machines and prices          (bzlabs machines)
+await me();             // who your key belongs to      (boltz auth status)
+await sandboxes();      // everything you have running  (boltz ls)
+await sandbox(id);      // one of them, by id           (boltz status <id>)
+await environments();   // runtime and coding-agent images (boltz environments)
+await machines();       // machines and prices          (boltz machines)
 
 use({ apiKey, url });   // point the default client somewhere else
 new Client({ apiKey, url });   // or hold two at once

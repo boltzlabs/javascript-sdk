@@ -100,6 +100,52 @@ export class Session {
 		return decoded;
 	}
 
+	/**
+	 * A request whose body and response are bytes rather than JSON.
+	 *
+	 * File transfer moves tar streams, which have no business being decoded as
+	 * JSON in either direction. Errors are still JSON, so those decode normally.
+	 *
+	 * @param {string} method
+	 * @param {string} routePath
+	 * @param {Uint8Array} [payload]
+	 * @param {{timeout?: number, contentType?: string}} [opts]
+	 * @returns {Promise<Uint8Array>}
+	 */
+	async raw(method, routePath, payload = undefined, { timeout = undefined, contentType } = {}) {
+		const seconds = timeout ?? this.timeout;
+		const headers = { ...this.headers };
+		if (payload !== undefined) headers['Content-Type'] = contentType ?? 'application/octet-stream';
+
+		let res;
+		try {
+			res = await fetch(this.url(routePath), {
+				method,
+				headers,
+				body: payload,
+				signal: AbortSignal.timeout(Math.round(seconds * 1000))
+			});
+		} catch (err) {
+			const why =
+				err?.name === 'TimeoutError' ? `timed out after ${seconds}s` : String(err?.message ?? err);
+			throw new TransportError(`${method} ${routePath}: ${why}`);
+		}
+
+		const buf = new Uint8Array(await res.arrayBuffer());
+		if (!res.ok) {
+			const text = new TextDecoder().decode(buf);
+			let decoded = null;
+			try {
+				decoded = JSON.parse(text);
+			} catch {
+				decoded = null;
+			}
+			const message = decoded?.error ?? decoded?.message ?? text.slice(0, 500) ?? res.statusText;
+			throw fromStatus(res.status, message || res.statusText, decoded);
+		}
+		return buf;
+	}
+
 	get(routePath, opts) {
 		return this.call('GET', routePath, undefined, opts);
 	}

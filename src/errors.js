@@ -66,8 +66,18 @@ const BY_STATUS = {
 	504: CapacityError
 };
 
+/**
+ * 409 with code "superseded" — a newer execute() with the same `supersedeKey`
+ * replaced this one. Not a failure: the newer run is the one whose result
+ * matters. Nothing was billed for this one.
+ */
+export class SupersededError extends APIError {}
+
 /** Map an HTTP status onto the class a caller would branch on. */
 export function fromStatus(status, message, body = null) {
+	if (status === 409 && body?.code === 'superseded') {
+		return new SupersededError(status, message, body);
+	}
 	const Cls = BY_STATUS[status] ?? APIError;
 	return new Cls(status, message, body);
 }

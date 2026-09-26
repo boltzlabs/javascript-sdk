@@ -30,6 +30,7 @@ export {
 	ExecResult,
 	Language,
 	Machine,
+	Submission,
 	Sandbox,
 	defaultClient,
 	use
@@ -47,6 +48,7 @@ export {
 	PayloadTooLargeError,
 	PoolGoneError,
 	QuotaError,
+	SupersededError,
 	TransportError
 } from './errors.js';
 
@@ -58,18 +60,18 @@ import { defaultClient } from './client.js';
 // lazily-built default client, so importing boltzlabs still needs no key and
 // opens no socket.
 
-/** Who your key belongs to. `bzlabs auth status`. */
+/** Who your key belongs to. `boltz auth status`. */
 export function me() {
 	return defaultClient().me();
 }
 
-/** Your sandboxes. `bzlabs ls`. */
+/** Your sandboxes. `boltz ls`. */
 export function sandboxes() {
 	return defaultClient().sandboxes();
 }
 
 /**
- * One sandbox by id. `bzlabs status <id>`.
+ * One sandbox by id. `boltz status <id>`.
  *
  * The counterpart to creating one: `Sandbox.create(...)` creates, this reaches
  * something the platform already assigned an id to.
@@ -79,7 +81,7 @@ export function sandbox(id) {
 }
 
 /**
- * Run one piece of code and get back what it printed. `bzlabs run`.
+ * Run one piece of code and get back what it printed. `boltz run`.
  *
  *     await execute('print(sum(range(101)))', {language: 'python'});
  *     await execute({file: 'train.py', language: 'python'});
@@ -90,17 +92,22 @@ export function execute(code, opts) {
 	return defaultClient().execute(code, opts);
 }
 
-/** The language codes execution accepts. `bzlabs languages`. */
+/** Run up to 20 submissions at once; see Client#executeBatch. */
+export function executeBatch(submissions, opts) {
+	return defaultClient().executeBatch(submissions, opts);
+}
+
+/** The language codes execution accepts. `boltz languages`. */
 export function languages() {
 	return defaultClient().languages();
 }
 
-/** What a sandbox can ship with. `bzlabs environments`. */
+/** What a sandbox can ship with. `boltz environments`. */
 export function environments() {
 	return defaultClient().environments();
 }
 
-/** Machines and prices. `bzlabs machines`. */
+/** Machines and prices. `boltz machines`. */
 export function machines() {
 	return defaultClient().machines();
 }
