@@ -85,6 +85,23 @@ test('pause and resume update the sandbox in place', async () => {
 	}
 });
 
+test('fork returns a new sandbox and leaves this one', async () => {
+	const stub = await stubServer({
+		'GET /api/sandboxes/sb-9': { id: 'sb-9', status: 'running' },
+		'POST /api/sandboxes/sb-9/fork': { id: 'sb-10', name: 'branch', status: 'running', forkedFrom: 'sb-9' }
+	});
+	try {
+		const sb = await new Client({ url: stub.url, apiKey: 'k' }).sandbox('sb-9');
+		const fork = await sb.fork({ name: 'branch' });
+		assert.notEqual(fork, sb);
+		assert.equal(fork.id, 'sb-10');
+		assert.equal(fork.name, 'branch');
+		assert.equal(sb.id, 'sb-9');
+	} finally {
+		await stub.close();
+	}
+});
+
 test('execute speaks the standard submission format, and never guesses the language', async () => {
 	const stub = await stubServer({
 		'GET /api/languages': [{ id: 113, name: 'Python (3.14)', code: 'python', compiled: false }],

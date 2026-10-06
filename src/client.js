@@ -15,14 +15,6 @@ import { Session } from './http.js';
 const DEFAULT_MACHINE = 'small';
 const DEFAULT_ENVIRONMENT = 'base';
 
-// What `sb.run()` assumes when the caller does not say. An environment names the
-// image, and the image implies the interpreter that is on it.
-const LANGUAGE_FOR = {
-	python: 'python',
-	node: 'node',
-	base: 'bash'
-};
-
 /**
  * A deadline for a call that runs the caller's code.
  *
@@ -248,7 +240,7 @@ export class Sandbox {
 		}
 	}
 
-	// -- the three verbs -----------------------------------------------------
+	// -- commands ------------------------------------------------------------
 
 	/** Run one shell command. */
 	async exec(command, { timeout = null } = {}) {
@@ -256,15 +248,6 @@ export class Sandbox {
 		if (timeout) body.timeoutS = Math.trunc(timeout);
 		return ExecResult._fromWire(
 			await this._client._post(`/api/sandboxes/${this.id}/exec`, body, { timeout: waitFor(timeout) })
-		);
-	}
-
-	/** Run a snippet. The language follows the sandbox type unless you say. */
-	async run(code, { language = null, timeout = null } = {}) {
-		const body = { code, language: language ?? LANGUAGE_FOR[this.environment] ?? 'bash' };
-		if (timeout) body.timeoutS = Math.trunc(timeout);
-		return ExecResult._fromWire(
-			await this._client._post(`/api/sandboxes/${this.id}/run`, body, { timeout: waitFor(timeout) })
 		);
 	}
 
@@ -328,6 +311,20 @@ export class Sandbox {
 	 */
 	async resume({ timeout = 300 } = {}) {
 		return this._fill(await this._client._post(`/api/sandboxes/${this.id}/resume`, null, { timeout }));
+	}
+
+	/**
+	 * A new sandbox that starts as a copy of this one.
+	 *
+	 * Files under /workspace are copied; running processes and packages installed
+	 * outside /workspace are not. This sandbox keeps running, held still only for
+	 * as long as its workspace takes to copy. The fork is a sandbox like any
+	 * other: it counts against your concurrent limit and bills on its own clock
+	 * until you pause or delete it.
+	 */
+	async fork({ name = null, timeout = 600 } = {}) {
+		const wire = await this._client._post(`/api/sandboxes/${this.id}/fork`, name ? { name } : {}, { timeout });
+		return new Sandbox(this._client)._fill(wire);
 	}
 
 	async delete() {

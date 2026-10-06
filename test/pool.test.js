@@ -18,7 +18,7 @@ function envDir(entrypoint = 'env.js') {
 
 function poolRoutes(n, extra = {}) {
 	return {
-		'POST /api/rl/pools': { pool_id: 'rp-1', n },
+		'POST /api/rl/pools?wait=false': { pool_id: 'rp-1', n },
 		'POST /api/rl/pools/rp-1/reset': {
 			obs: Array.from({ length: n }, (_, i) => ({ t: 0, i })),
 			timing: { worker_ms: 3 }

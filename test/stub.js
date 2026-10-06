@@ -14,8 +14,8 @@ export async function stubServer(routes) {
 		const body = raw ? JSON.parse(raw) : null;
 		seen.push({ method: req.method, path: req.url, body, headers: req.headers });
 
-		const key = `${req.method} ${req.url.split('?')[0]}`;
-		const handler = routes[key];
+		const key = `${req.method} ${req.url}`;
+		const handler = routes[key] ?? routes[`${req.method} ${req.url.split('?')[0]}`];
 		if (!handler) {
 			res.writeHead(404, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: `no stub for ${key}` }));

@@ -4,7 +4,6 @@
 //
 //     const sb = await Sandbox.create();                  // small / base / internet off
 //
-//     console.log(String(await sb.run('print(sum(range(101)))')));
 //     console.log(String(await sb.exec('pip install requests')));
 //
 //     await sb.delete();                                  // stops the meter

@@ -20,7 +20,7 @@ import { Sandbox } from 'boltzlabs';
 
 const sb = await Sandbox.create();                 // small / base / internet off
 
-console.log(String(await sb.run('print(sum(range(101)))')));
+console.log(String(await sb.exec("python3 -c 'print(sum(range(101)))'")));
 console.log(String(await sb.exec('pip install requests')));
 
 await sb.delete();                                 // stops the meter
@@ -49,7 +49,7 @@ const sb = await Sandbox.create({
 await sb.waitUntilRunning();  // creation returns before boot does
 
 await sb.exec('nvidia-smi');
-await sb.run('import numpy; print(numpy.arange(4).sum())');
+await sb.exec("python -c 'import numpy; print(numpy.arange(4).sum())'");
 
 sb.url(8080);                 // reach a port from outside
 await sb.metrics();
@@ -62,7 +62,7 @@ the case that otherwise leaves a machine billing until someone notices.
 
 ```js
 await Sandbox.withSandbox({ environment: 'python' }, async (sb) => {
-  (await sb.run('print("hi")')).check();
+  (await sb.exec('echo hi')).check();
 });
 ```
 
@@ -101,8 +101,10 @@ const res = await execute({ file: 'sol.py', language: 'python', stdin: '1 2\n',
 res.status.description;   // Accepted, Wrong Answer, Time Limit Exceeded, ...
 
 const results = await executeBatch(tests.map(([i, o]) =>
-  ({ code: src, language: 113, stdin: i, expected_output: o })));   // up to 20
+  ({ code: src, language: 100, stdin: i, expected_output: o })));   // up to 20
 ```
+
+Batch submission is available to paid users. Each batch entry counts as one execution.
 
 ## Everything else
 
@@ -118,6 +120,22 @@ await machines();       // machines and prices          (boltz machines)
 use({ apiKey, url });   // point the default client somewhere else
 new Client({ apiKey, url });   // or hold two at once
 ```
+
+## RL pool startup
+
+`await RLPool.create({ environment: 'cartpole', n: 4 })` starts creation and
+polls the saved pool until it is ready. Each public HTTP request is capped at
+60 seconds; `createTimeout` bounds the complete startup (900 seconds by default).
+Startup errors keep the API's status and message. If polling fails or times out,
+the SDK attempts to cancel the pool. If cleanup cannot reach the server, find
+the pool in your dashboard and delete it after reconnecting.
+
+HTTP clients use `POST /api/rl/pools?wait=false` (202), then poll the returned
+`Location` with the same API key once per second. Status is `creating`, `running`
+or `failed`; failures include `error` and `error_status`. `DELETE` cancels pending
+startup. Pending pools reserve quota and expire after 15 minutes, including
+when a control-plane restart interrupts startup. The original synchronous POST
+remains available for older clients; internal worker calls are unchanged.
 
 ## Errors
 
