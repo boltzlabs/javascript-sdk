@@ -463,7 +463,7 @@ export class Client {
 	 * `stdin`, `expected_output`, limits). Resolves to their Submissions, in
 	 * order, once all finish.
 	 */
-	async executeBatch(submissions, { wait = true, pollMs = 250, timeoutMs = 300000 } = {}) {
+	async executeBatch(submissions, { wait = true, pollMs = 250, timeoutMs = 1260000 } = {}) {
 		const items = [];
 		for (const item of submissions) {
 			const { code, source_code, language, language_id, ...rest } = item;

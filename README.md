@@ -105,6 +105,7 @@ const results = await executeBatch(tests.map(([i, o]) =>
 ```
 
 Batch submission is available to paid users. Each batch entry counts as one execution.
+Batch waits default to 21 minutes to allow workers to start; set `timeoutMs` to override.
 
 ## Everything else
 
