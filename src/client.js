@@ -566,22 +566,13 @@ export class Client {
 	// -- rl ------------------------------------------------------------------
 
 	/**
-	 * An RL pool on this origin with this key — the ordinary `RLPool`.
-	 *
-	 * Either your own environment directory, or one the platform ships:
+	 * An RL pool on this origin with this key — the ordinary `RLPool`:
 	 *
 	 *     await client.pool({envDir: './my_env', n: 64});
-	 *     await client.pool({environment: 'cartpole', n: 64});
 	 */
 	async pool(opts = {}) {
 		const { RLPool } = await import('./pool.js');
 		return RLPool.create({ ...opts, url: this.url, apiKey: this._apiKey });
-	}
-
-	/** The ready-made RL environments a pool can be launched with. */
-	async rlEnvironments() {
-		const body = await this._get('/api/rl/environments');
-		return body?.environments ?? [];
 	}
 
 	async pools() {

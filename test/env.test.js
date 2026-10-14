@@ -102,7 +102,7 @@ test('a throw in step becomes a done episode, not a dead environment', async () 
 	assert.equal(code, 0);
 });
 
-test('the gymnasium 5-tuple keeps terminated and truncated apart', async () => {
+test('the 5-tuple keeps terminated and truncated apart', async () => {
 	// Collapsing these into one flag without preserving both would be a silent
 	// correctness bug in a trainer that bootstraps value estimates.
 	const { lines } = await drive(

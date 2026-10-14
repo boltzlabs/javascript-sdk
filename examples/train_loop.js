@@ -1,32 +1,42 @@
-// The shape of a training loop against a pool.
+// The shape of a training loop against a pool: a random agent on a real bug.
 //
-//     node examples/train_loop.js --environment cartpole -n 256
-//     node examples/train_loop.js --env-dir ./examples/counting_env -n 64 --runtime node
+//     node examples/train_loop.js -n 64
+//     node examples/train_loop.js --env-dir ./my_env -n 64 --runtime node
 //
-// There is no learning here on purpose — it is the loop and the timing, which is
-// what you want to see before putting a real algorithm behind it.
-import { RLPool, rlEnvironments } from '../src/index.js';
+// Each environment is examples/dotenv_env: python-dotenv with a real upstream bug
+// put back. The agent reads, writes and runs the hidden tests; reward is 1 only
+// for a real fix. There is no learning here on purpose — it is the loop and the
+// timing, which is what you want to see before putting a model behind it.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { RLPool } from '../src/index.js';
 
 function arg(name, fallback = null) {
 	const i = process.argv.indexOf(name);
 	return i === -1 ? fallback : process.argv[i + 1];
 }
 
+const here = path.dirname(fileURLToPath(import.meta.url));
 const n = Number(arg('-n', '64'));
 const steps = Number(arg('--steps', '100'));
-const environment = arg('--environment');
-const envDir = arg('--env-dir');
+const envDir = arg('--env-dir', path.join(here, 'dotenv_env'));
 const runtime = arg('--runtime', 'python3');
 
-if (!environment && !envDir) {
-	console.error('pass --environment <name> or --env-dir <path>');
-	console.error('available:', (await rlEnvironments()).map((e) => e.code).join(', '));
-	process.exit(2);
-}
+// The agent's possible moves. The repository copy here holds the upstream fix,
+// so one write repairs the bug and another leaves it broken.
+const target = 'src/dotenv/parser.py';
+const fixed = fs.readFileSync(path.join(here, 'dotenv_env', 'repo', target), 'utf8');
+const broken = fixed.replace('stream.read().removeprefix("\\ufeff")', 'stream.read()');
+const moves = [
+	{ op: 'read', path: target },
+	{ op: 'write', path: target, content: fixed },
+	{ op: 'write', path: target, content: broken },
+	{ op: 'test' }
+];
 
-const pool = await RLPool.create(
-	environment ? { environment, n } : { envDir, n, runtime }
-);
+const pool = await RLPool.create({ envDir, n, runtime });
 console.log(`pool ${pool.poolId}: ${pool.n} envs via ${pool.via}`);
 
 try {
@@ -35,9 +45,10 @@ try {
 	const overheads = [];
 
 	for (let i = 0; i < steps; i++) {
-		// A real trainer puts a policy here. Random actions still measure the
-		// thing this loop exists to measure: what a step costs.
-		const actions = obs.map(() => Math.floor(Math.random() * 2));
+		// A real trainer puts a model here that reads the issue and writes a
+		// patch. Random moves still measure what this loop exists to measure:
+		// what a step costs.
+		const actions = obs.map(() => moves[Math.floor(Math.random() * moves.length)]);
 		const { obs: next, rewards, timing } = await pool.step(actions);
 
 		obs = next;

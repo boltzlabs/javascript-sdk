@@ -10,7 +10,7 @@
 //
 //     import { RLPool } from 'boltzlabs';
 //
-//     const pool = await RLPool.create({environment: 'cartpole', n: 1000});
+//     const pool = await RLPool.create({envDir: './my_env', n: 1000});
 //     await pool.reset();
 //     const {rewards, dones} = await pool.step(actions);   // one request, 1000 envs
 //     await pool.close();
@@ -109,18 +109,6 @@ export function environments() {
 /** Machines and prices. `boltz machines`. */
 export function machines() {
 	return defaultClient().machines();
-}
-
-/**
- * The ready-made RL environments a pool can be launched with.
- *
- * Each is the same JSON-lines protocol in the same sandbox as your own code —
- * the only difference is that it was already on the box:
- *
- *     RLPool.create({environment: 'cartpole', n: 64})
- */
-export function rlEnvironments() {
-	return defaultClient().rlEnvironments();
 }
 
 /** Your RL pools. */

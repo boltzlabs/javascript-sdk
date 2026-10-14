@@ -36,50 +36,16 @@ function poolRoutes(n, extra = {}) {
 	};
 }
 
-// --- named environments ----------------------------------------------------
-// A pool runs either an environment the platform ships or one you wrote. Both,
-// or neither, is refused before anything is packed or sent: the two readings of
-// "whose code ran" are equally plausible, and the wrong one is a training run
-// against an environment nobody chose.
+// --- arguments ----------------------------------------------------------------
+// A pool runs the environment you wrote; both checks happen before anything is
+// packed or sent.
 
-test('a pool needs exactly one source of code', async () => {
-	await assert.rejects(
-		() => RLPool.create({ envDir: './some_env', n: 4, environment: 'cartpole' }),
-		/not both and not neither/
-	);
-	await assert.rejects(() => RLPool.create({ n: 4 }), /not both and not neither/);
+test('a pool needs your environment', async () => {
+	await assert.rejects(() => RLPool.create({ n: 4 }), /envDir is required/);
 });
 
 test('n is required', async () => {
-	await assert.rejects(() => RLPool.create({ environment: 'cartpole' }), /n is required/);
-});
-
-test('a named environment sends no code, no runtime and no entrypoint', async () => {
-	const stub = await stubServer(poolRoutes(4));
-	try {
-		const pool = await RLPool.create({
-			environment: 'cartpole',
-			n: 4,
-			url: stub.url,
-			apiKey: 'k'
-		});
-
-		const [create] = stub.seen;
-		assert.equal(create.body.environment, 'cartpole');
-		assert.equal(create.body.n, 4);
-		// Runtime and entrypoint belong to the catalogue entry. Sending them
-		// anyway is a request the platform refuses.
-		assert.ok(!('runtime' in create.body));
-		assert.ok(!('entrypoint' in create.body));
-		assert.ok(!('code_tar_gz' in create.body));
-
-		assert.equal(pool.poolId, 'rp-1');
-		assert.equal(pool.environment, 'cartpole');
-		assert.equal(pool.codeBytes, 0);
-		await pool.close();
-	} finally {
-		await stub.close();
-	}
+	await assert.rejects(() => RLPool.create({ envDir: './some_env' }), /n is required/);
 });
 
 test('an env directory is packed and uploaded', async () => {
@@ -98,8 +64,7 @@ test('an env directory is packed and uploaded', async () => {
 		assert.equal(create.body.runtime, 'node');
 		assert.equal(create.body.entrypoint, 'env.js');
 		assert.ok(create.body.code_tar_gz.length > 0);
-		assert.ok(!('environment' in create.body));
-
+		
 		// It is a real gzip stream, not a base64 accident.
 		const tar = zlib.gunzipSync(Buffer.from(create.body.code_tar_gz, 'base64'));
 		assert.ok(tar.length % 512 === 0);
@@ -115,7 +80,7 @@ test('an env directory is packed and uploaded', async () => {
 test('reset and step carry the batch in one request each', async () => {
 	const stub = await stubServer(poolRoutes(4));
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 4, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 4, url: stub.url, apiKey: 'k' });
 
 		const obs = await pool.reset();
 		assert.equal(obs.length, 4);
@@ -143,7 +108,7 @@ test('reset and step carry the batch in one request each', async () => {
 test('a typed array of actions is accepted', async () => {
 	const stub = await stubServer(poolRoutes(3));
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 3, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 3, url: stub.url, apiKey: 'k' });
 		await pool.step(Int32Array.from([1, 2, 3]));
 		const [, step] = stub.seen;
 		assert.deepEqual(step.body.actions, [1, 2, 3]);
@@ -156,7 +121,7 @@ test('a typed array of actions is accepted', async () => {
 test('the wrong number of actions is caught before the request', async () => {
 	const stub = await stubServer(poolRoutes(4));
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 4, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 4, url: stub.url, apiKey: 'k' });
 		await assert.rejects(() => pool.step([1, 2]), /got 2 actions for 4 environments/);
 		// Nothing was sent.
 		assert.equal(stub.seen.filter((r) => r.path.endsWith('/step')).length, 0);
@@ -169,7 +134,7 @@ test('the wrong number of actions is caught before the request', async () => {
 test('timing reports the overhead the platform cost you', async () => {
 	const stub = await stubServer(poolRoutes(2));
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 2, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 2, url: stub.url, apiKey: 'k' });
 		await pool.step([0, 0]);
 
 		assert.ok(pool.timing.roundtripMs > 0);
@@ -192,7 +157,7 @@ test('a partial reset only touches the indices it names', async () => {
 				: { obs: Array.from({ length: 4 }, (_, i) => ({ t: 0, i })) }
 	});
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 4, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 4, url: stub.url, apiKey: 'k' });
 		await pool.reset();
 		const obs = await pool.reset({ where: [1, 3] });
 
@@ -209,7 +174,7 @@ test('a partial reset only touches the indices it names', async () => {
 test('an out-of-range index is refused', async () => {
 	const stub = await stubServer(poolRoutes(4));
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 4, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 4, url: stub.url, apiKey: 'k' });
 		await assert.rejects(() => pool.reset({ where: [9] }), RangeError);
 		await pool.close();
 	} finally {
@@ -220,7 +185,7 @@ test('an out-of-range index is refused', async () => {
 test('close is idempotent and a closed pool refuses work', async () => {
 	const stub = await stubServer(poolRoutes(2));
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 2, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 2, url: stub.url, apiKey: 'k' });
 		await pool.close();
 		await pool.close(); // must not throw, and must not send twice
 
@@ -237,7 +202,7 @@ test('withPool closes even when the body throws', async () => {
 	try {
 		await assert.rejects(
 			() =>
-				RLPool.withPool({ environment: 'cartpole', n: 2, url: stub.url, apiKey: 'k' }, async () => {
+				RLPool.withPool({ envDir: envDir(), runtime: 'node', n: 2, url: stub.url, apiKey: 'k' }, async () => {
 					throw new Error('training blew up');
 				}),
 			/training blew up/
@@ -254,7 +219,7 @@ test('a short batch from the worker is caught, not silently trusted', async () =
 		'POST /api/rl/pools/rp-1/step': { obs: [{}, {}], rewards: [1, 1], dones: [false, false], infos: [{}, {}] }
 	});
 	try {
-		const pool = await RLPool.create({ environment: 'cartpole', n: 4, url: stub.url, apiKey: 'k' });
+		const pool = await RLPool.create({ envDir: envDir(), runtime: 'node', n: 4, url: stub.url, apiKey: 'k' });
 		await assert.rejects(() => pool.step([0, 0, 0, 0]), /returned 2 observations, expected 4/);
 		await pool.close();
 	} finally {

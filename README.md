@@ -122,9 +122,15 @@ use({ apiKey, url });   // point the default client somewhere else
 new Client({ apiKey, url });   // or hold two at once
 ```
 
+## Example
+
+`examples/dotenv_env` is an agentic RL environment: fix a real python-dotenv bug
+by reading, writing and running the hidden tests (reward 1 only for a real fix).
+`examples/train_loop.js` steps many copies of it with a random agent.
+
 ## RL pool startup
 
-`await RLPool.create({ environment: 'cartpole', n: 4 })` starts creation and
+`await RLPool.create({ envDir: './examples/dotenv_env', n: 4 })` starts creation and
 polls the saved pool until it is ready. Each public HTTP request is capped at
 60 seconds; `createTimeout` bounds the complete startup (900 seconds by default).
 Startup errors keep the API's status and message. If polling fails or times out,

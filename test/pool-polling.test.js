@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import { RLPool } from "../src/pool.js";
 import { stubServer } from "./stub.js";
+
+/** A minimal environment directory the packer will accept. */
+function envDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bz-env-"));
+  fs.writeFileSync(path.join(dir, "env.py"), "print('ok')\n");
+  return dir;
+}
 
 test("creation polls the saved pool and returns only when ready", async () => {
   let polls = 0;
@@ -19,7 +29,7 @@ test("creation polls the saved pool and returns only when ready", async () => {
   });
   try {
     const pool = await RLPool.create({
-      environment: "cartpole",
+      envDir: envDir(),
       n: 2,
       url: stub.url,
       apiKey: "k",
@@ -49,7 +59,7 @@ test("startup errors keep their status and cancel the pool", async () => {
   try {
     await assert.rejects(
       RLPool.create({
-        environment: "cartpole",
+        envDir: envDir(),
         n: 1,
         url: stub.url,
         apiKey: "k",
@@ -70,7 +80,7 @@ test("the creation deadline cancels the pending pool", async () => {
   try {
     await assert.rejects(
       RLPool.create({
-        environment: "cartpole",
+        envDir: envDir(),
         n: 1,
         url: stub.url,
         apiKey: "k",

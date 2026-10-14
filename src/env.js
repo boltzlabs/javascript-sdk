@@ -101,11 +101,11 @@ function jsonable(_key, value) {
 /**
  * Unwrap what a reset returned.
  *
- * Gymnasium-style environments return `[obs, info]`; plenty of hand-written ones
+ * A `reset` may return `[obs, info]`; plenty of hand-written ones
  * return the observation alone. Both are accepted. The pool's reset carries no
  * info field, so an info object here is dropped — if your observation is
  * genuinely a pair whose second element is an object, wrap it so it is not
- * mistaken for the Gymnasium shape.
+ * mistaken for that shape.
  */
 function resetObs(ret) {
 	if (Array.isArray(ret) && ret.length === 2 && ret[1] !== null && typeof ret[1] === 'object' && !Array.isArray(ret[1])) {
@@ -120,7 +120,7 @@ function resetObs(ret) {
  * Accepted, in the order they are tried:
  *
  *   * object with `obs`/`reward`/`done`/`info` — passed through
- *   * `[obs, reward, terminated, truncated, info]` — the Gymnasium 5-tuple
+ *   * `[obs, reward, terminated, truncated, info]` — the 5-tuple
  *   * `[obs, reward, done, info]` — the classic 4-tuple
  *   * `[obs, reward, done]` / `[obs, reward]`
  *

@@ -1,6 +1,6 @@
 // A pool of RL environments, driven one batch at a time.
 //
-//     const pool = await RLPool.create({environment: 'cartpole', n: 1000});
+//     const pool = await RLPool.create({envDir: './my_env', n: 1000});
 //     let obs = await pool.reset();
 //     const {rewards, dones} = await pool.step(actions);   // one request, 1000 envs
 //     await pool.close();
@@ -87,17 +87,13 @@ export class RLPool {
   }
 
   /**
-   * Create a pool and wait for its environments to boot.
-   *
-   * Either your own environment directory, or one the platform ships:
+   * Create a pool from your environment directory and wait for it to boot:
    *
    *     RLPool.create({envDir: './my_env', n: 64})
-   *     RLPool.create({environment: 'cartpole', n: 64})
    */
   static async create({
     envDir = null,
     n = null,
-    environment = null,
     url = null,
     apiKey = null,
     direct = null,
@@ -112,14 +108,10 @@ export class RLPool {
     timeout = 60,
     createTimeout = 900,
   } = {}) {
-    // A pool runs either an environment the platform ships or one you wrote.
-    // Refused rather than resolved by precedence: the two readings of "whose
-    // code ran" are equally plausible, and the wrong one is a training run
-    // against an environment nobody chose.
-    if (Boolean(envDir) === Boolean(environment)) {
+    // A pool runs an environment you wrote.
+    if (!envDir) {
       throw new TypeError(
-        "pass either envDir (your environment) or environment (a name), " +
-          "not both and not neither — see boltzlabs.rlEnvironments()",
+        "envDir is required: the directory holding your environment",
       );
     }
     if (n === null || n === undefined) {
@@ -154,32 +146,20 @@ export class RLPool {
       serialize_measurement: Boolean(serializeMeasurement),
     };
 
-    let resolvedRuntime = null;
-    let resolvedEntrypoint = null;
-    let codeBytes = 0;
-    let skippedSymlinks = [];
+    const resolvedRuntime = runtime;
+    const resolvedEntrypoint =
+      entrypoint ?? (runtime === "node" ? "env.js" : "env.py");
 
-    if (environment) {
-      // A ready-made environment: nothing to pack, and runtime/entrypoint
-      // belong to the catalogue entry rather than to this call. Sending them
-      // anyway would be a request the platform refuses.
-      body.environment = environment;
-    } else {
-      resolvedRuntime = runtime;
-      resolvedEntrypoint =
-        entrypoint ?? (runtime === "node" ? "env.js" : "env.py");
+    const packed = await packEnvDir(envDir, {
+      entrypoint: resolvedEntrypoint,
+      vendor: vendorSdk,
+    });
+    const codeBytes = packed.code.length;
+    const skippedSymlinks = packed.skippedSymlinks;
 
-      const packed = await packEnvDir(envDir, {
-        entrypoint: resolvedEntrypoint,
-        vendor: vendorSdk,
-      });
-      codeBytes = packed.code.length;
-      skippedSymlinks = packed.skippedSymlinks;
-
-      body.runtime = resolvedRuntime;
-      body.entrypoint = resolvedEntrypoint;
-      body.code_tar_gz = packed.code.toString("base64");
-    }
+    body.runtime = resolvedRuntime;
+    body.entrypoint = resolvedEntrypoint;
+    body.code_tar_gz = packed.code.toString("base64");
 
     if (name) body.name = name;
     if (memoryMb) body.memory_mb = Math.trunc(memoryMb);
@@ -247,7 +227,6 @@ export class RLPool {
     return new RLPool({
       poolId: created?.pool_id ?? created?.id ?? "",
       n: Math.trunc(n),
-      environment: environment ?? null,
       runtime: resolvedRuntime,
       entrypoint: resolvedEntrypoint,
       codeBytes,
